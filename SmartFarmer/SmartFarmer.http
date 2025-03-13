@@ -1,0 +1,6 @@
+@SmartFarmer_HostAddress = http://localhost:5001
+
+GET {{SmartFarmer_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
