@@ -1,4 +1,6 @@
 
+using Amazon;
+using Amazon.S3;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +14,17 @@ using System.Reflection;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Load AWS settings from appsettings.json
+var awsOptions = builder.Configuration.GetSection("AWS");
+var awsAccessKey = awsOptions["AccessKey"];
+var awsSecretKey = awsOptions["SecretKey"];
+var awsRegion = RegionEndpoint.GetBySystemName(awsOptions["Region"]);
+
+
+builder.Services.AddSingleton<IAmazonS3>(sp =>
+    new AmazonS3Client(awsAccessKey, awsSecretKey, awsRegion));
+
 // Add services to the container.
 
 builder.Services.AddControllers();
@@ -109,9 +122,12 @@ builder.Services.AddCors(options =>
     });
 });
 
+
+
 DependencyContainer.RegisterServices(builder.Services);
 
 var app = builder.Build();
+app.MapGet("/", () => "S3 Integration Ready!");
 var scopeFactory = app.Services.GetRequiredService<IServiceScopeFactory>();
 
 using (var scope = scopeFactory.CreateScope())

@@ -1,4 +1,6 @@
-﻿using Azure;
+﻿using Amazon.S3;
+using Amazon.S3.Model;
+using Azure;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.AspNetCore.Identity;
@@ -34,7 +36,9 @@ namespace SmartFarmer.API.Controllers
         private readonly IUserGroupService _userGroupService;
         private readonly IEventService _eventService;
         private readonly IFarmService _farmService;
-        public AuthController(UserManager<ApplicationUser> userManager, IConfiguration configuration, SignInManager<ApplicationUser> signInManager, RoleManager<IdentityRole> roleManager, IUserService userService, IFileService fileService, IUserGroupService userGroupService, IEventService eventService,IFarmService farmService)
+        private readonly IAmazonS3 _amazonS3;
+        private readonly string _bucketName;
+        public AuthController(UserManager<ApplicationUser> userManager, IConfiguration configuration, SignInManager<ApplicationUser> signInManager, RoleManager<IdentityRole> roleManager, IUserService userService, IFileService fileService, IUserGroupService userGroupService, IEventService eventService,IFarmService farmService, IAmazonS3 amazonS3)
         {
             _userManager = userManager;
             _userService = userService;
@@ -46,6 +50,8 @@ namespace SmartFarmer.API.Controllers
             _userGroupService = userGroupService;
             _eventService = eventService;
             _farmService = farmService;
+            _amazonS3 = amazonS3;
+            _bucketName = configuration["AWS:BucketName"];
         }
 
         /// <summary>
@@ -733,6 +739,77 @@ namespace SmartFarmer.API.Controllers
             NLog.LogManager.GetLogger(User.Identity.Name).Info(System.Reflection.MethodBase.GetCurrentMethod().Name + Core.Common.Constants.Response + jsonResponse);
             return Ok(new ResponseViewModel { Status = ResponseStatusType.Success.ToString(), Message = ResponseMessageConstants.RecordGetSuccess, data = res });
         }
+
+
+        private static readonly Dictionary<string, string> _mimeTypes = new()
+        {
+            { ".jpg", "image/jpeg" },
+            { ".jpeg", "image/jpeg" },
+            { ".png", "image/png" },
+            { ".gif", "image/gif" },
+            { ".bmp", "image/bmp" },
+            { ".pdf", "application/pdf" }
+        };
+
+        [HttpPost]
+        [Route("add-user-profileImage")]
+        public async Task<string> UploadFileAsync(IFormFile file)
+        {
+            if (file == null || file.Length == 0)
+                throw new ArgumentException("File is empty");
+
+            // Get file extension
+            var extension = Path.GetExtension(file.FileName).ToLower();
+
+            // Validate allowed file types
+            if (!_mimeTypes.ContainsKey(extension))
+                throw new ArgumentException("Invalid file type. Only images and PDFs are allowed.");
+
+            // Set MIME type
+            var contentType = _mimeTypes[extension];
+
+            using var stream = file.OpenReadStream();
+            var putRequest = new PutObjectRequest
+            {
+                BucketName = _bucketName,
+                Key = Guid.NewGuid() + extension, // Generate unique file name
+                InputStream = stream,
+                ContentType = contentType
+            };
+
+            await _amazonS3.PutObjectAsync(putRequest);
+            return $"https://{_bucketName}.s3.amazonaws.com/{putRequest.Key}";
+        }
+        [HttpGet]
+        [Route("get-user-profileImage")]
+        public async Task<IActionResult> GetFileAsync(string fileName)
+        {
+            var getRequest = new GetObjectRequest
+            {
+                BucketName = _bucketName,
+                Key = fileName
+            };
+
+            var response = await _amazonS3.GetObjectAsync(getRequest); // No using statement
+
+            return File(response.ResponseStream, response.Headers["Content-Type"] ?? "application/octet-stream");
+        }
+
+        [HttpDelete]
+        [Route("delete-user-profileImage")]
+        public async Task<bool> DeleteFileAsync(string fileName)
+        {
+            var deleteRequest = new DeleteObjectRequest
+            {
+                BucketName = _bucketName,
+                Key = fileName
+            };
+
+            await _amazonS3.DeleteObjectAsync(deleteRequest);
+            return true;
+        }
+
+
 
         /// <summary>
         ///update user location
